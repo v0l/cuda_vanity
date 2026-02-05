@@ -8,7 +8,7 @@ Benchmarked performance on real hardware:
 
 | GPU | Architecture | Compute Capability | Performance | vs rana CPU |
 |-----|--------------|-------------------|-------------|-------------|
-| **RTX 50-series (GB10)** | Blackwell | 12.1 | **~2.0M keys/s** | **1.2x faster** ✅ |
+| GB10 | Blackwell | 12.1 | **~2.0M keys/s** | **1.2x faster** ✅ |
 | GTX 1070 | Pascal | 6.1 | ~150K keys/s | 11x slower |
 
 **CPU Comparison:**
@@ -130,7 +130,7 @@ This will:
 
 ## Benchmarking
 
-Compare against `rana` CPU implementation:
+Run performance benchmarks:
 
 ```bash
 ./benchmark.sh <pattern>
@@ -138,6 +138,8 @@ Compare against `rana` CPU implementation:
 # Example
 ./benchmark.sh q
 ```
+
+This will run 5 iterations and show min/max/avg hash rates.
 
 ## Technical Details
 
