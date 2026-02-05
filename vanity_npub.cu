@@ -144,10 +144,11 @@ __global__ void vanity_search_kernel(
     uint8_t pubkey_bytes[32];
     char npub[64];
     
+    int keys_processed = 0;
+    
     // Process a fixed number of keys per kernel launch
     for (int iter = 0; iter < keys_per_thread && !(*found_flag); iter++) {
-        // Increment key counter (each thread counts its own keys)
-        atomicAdd(key_counter, 1ULL);
+        keys_processed++;
         
         // Generate random 32-byte private key
         for (int i = 0; i < 8; i++) {
@@ -184,6 +185,9 @@ __global__ void vanity_search_kernel(
             return;
         }
     }
+    
+    // Update counter once at the end instead of every iteration
+    atomicAdd(key_counter, (unsigned long long)keys_processed);
 }
 
 int main(int argc, char **argv) {
@@ -271,8 +275,9 @@ int main(int argc, char **argv) {
             double keys_per_sec = keys_generated / (elapsed / 1000.0);
             
             auto total_elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
-            printf("\r[%lds] Generated: %llu keys | Speed: %.2f keys/s", 
-                   (long)total_elapsed, current_count, keys_per_sec);
+            // Clear line with spaces before printing to avoid overlap
+            printf("\r%-80s\r[%lds] Generated: %llu keys | Speed: %.2f keys/s", 
+                   "", (long)total_elapsed, current_count, keys_per_sec);
             fflush(stdout);
             
             last_count = current_count;
