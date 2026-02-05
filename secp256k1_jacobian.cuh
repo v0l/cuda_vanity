@@ -199,6 +199,16 @@ __device__ inline void get_curve_G(Big256& Gx, Big256& Gy) {
 // Jacobian point structure
 struct PointJ { Big256 X, Y, Z; };
 
+// Precomputed table for windowed scalar multiplication
+// Stores [1G, 2G, 3G, ..., 15G] in Jacobian coordinates
+#define PRECOMP_TABLE_SIZE 16
+
+struct PrecompTable {
+    PointJ points[PRECOMP_TABLE_SIZE];
+};
+
+__device__ __constant__ PrecompTable G_precomp_table;
+
 __device__ inline bool is_infty(const PointJ& p) {
     for (int i = 0; i < 8; i++) if (p.Z.w[i] != 0) return false;
     return true;
@@ -318,6 +328,47 @@ __device__ inline void scalar_mul_jacobian(const PointJ& base, const Big256& sca
             if ((w >> b) & 1u) jacobian_add(R, addp, R);
         }
     }
+    res = R;
+}
+
+// Windowed scalar multiplication using 4-bit windows (uses precomputed table)
+__device__ inline void scalar_mul_windowed(const Big256& scalar, PointJ& res) {
+    big256_set_zero(res.X); big256_set_zero(res.Y); big256_set_zero(res.Z);
+    PointJ R = res;
+    
+    // Process scalar in 4-bit windows from MSB to LSB
+    // Big256 is little-endian: w[7] is MSW, w[0] is LSW
+    // 256 bits / 4 = 64 windows
+    for (int w_idx = 63; w_idx >= 0; --w_idx) {
+        // Double 4 times
+        for (int i = 0; i < 4; ++i) {
+            jacobian_double(R, R);
+        }
+        
+        // Extract 4-bit window
+        // w_idx 63 = bits 252-255 (top 4 bits of scalar.w[7])
+        // w_idx 0  = bits 0-3 (bottom 4 bits of scalar.w[0])
+        int bit_pos = w_idx * 4;  // bit position from LSB
+        int word_idx = bit_pos / 32;  // which word (0-7)
+        int bit_in_word = bit_pos % 32;  // bit position within word
+        
+        uint32_t window;
+        if (bit_in_word <= 28) {
+            // Window fits in one word, extract 4 bits
+            window = (scalar.w[word_idx] >> bit_in_word) & 0xF;
+        } else {
+            // Window spans two words
+            uint32_t low_bits = scalar.w[word_idx] >> bit_in_word;
+            uint32_t high_bits = (word_idx < 7) ? (scalar.w[word_idx + 1] << (32 - bit_in_word)) : 0;
+            window = (low_bits | high_bits) & 0xF;
+        }
+        
+        // Add corresponding precomputed point (skip if window = 0)
+        if (window > 0) {
+            jacobian_add(R, G_precomp_table.points[window - 1], R);
+        }
+    }
+    
     res = R;
 }
 

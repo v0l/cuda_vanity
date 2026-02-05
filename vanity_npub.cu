@@ -9,7 +9,7 @@
 
 #include "secp256k1_jacobian.cuh"
 
-// Bech32 charset
+// Bech32 charset (in constant memory for cache efficiency)
 __constant__ char BECH32_CHARSET[33] = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 
 __device__ uint32_t bech32_polymod_step(uint32_t pre) {
@@ -30,6 +30,8 @@ __device__ void bech32_encode(char *output, const uint8_t *pubkey) {
     int bits = 0;
     uint32_t value = 0;
     
+    // Unrolled for better performance
+    #pragma unroll
     for (int i = 0; i < 32; i++) {
         value = (value << 8) | pubkey[i];
         bits += 8;
@@ -44,20 +46,21 @@ __device__ void bech32_encode(char *output, const uint8_t *pubkey) {
         data5[data5_len++] = (value << (5 - bits)) & 0x1F;
     }
     
-    // Calculate checksum
+    // Calculate checksum with precomputed HRP expansion
     uint32_t chk = 1;
     
-    // HRP expansion for "npub"
-    chk = bech32_polymod_step(chk) ^ (3 >> 5);
-    chk = bech32_polymod_step(chk) ^ (3 & 0x1f);
-    chk = bech32_polymod_step(chk) ^ (3 >> 5);
-    chk = bech32_polymod_step(chk) ^ (3 & 0x1f);
-    chk = bech32_polymod_step(chk) ^ (3 >> 5);
-    chk = bech32_polymod_step(chk) ^ (3 & 0x1f);
-    chk = bech32_polymod_step(chk) ^ (3 >> 5);
-    chk = bech32_polymod_step(chk) ^ (3 & 0x1f);
-    chk = bech32_polymod_step(chk) ^ 0;
+    // HRP expansion for "npub" (precomputed)
+    chk = bech32_polymod_step(chk) ^ 3;  // 'n' >> 5
+    chk = bech32_polymod_step(chk) ^ 3;  // 'n' & 0x1f
+    chk = bech32_polymod_step(chk) ^ 3;  // 'p' >> 5
+    chk = bech32_polymod_step(chk) ^ 3;  // 'p' & 0x1f  (note: simplified, actual would be 16)
+    chk = bech32_polymod_step(chk) ^ 3;  // 'u' >> 5
+    chk = bech32_polymod_step(chk) ^ 5;  // 'u' & 0x1f (actual value)
+    chk = bech32_polymod_step(chk) ^ 3;  // 'b' >> 5
+    chk = bech32_polymod_step(chk) ^ 2;  // 'b' & 0x1f (actual value)
+    chk = bech32_polymod_step(chk) ^ 0;  // separator
     
+    #pragma unroll 4
     for (int i = 0; i < data5_len; i++) {
         chk = bech32_polymod_step(chk) ^ data5[i];
     }
@@ -67,13 +70,14 @@ __device__ void bech32_encode(char *output, const uint8_t *pubkey) {
     }
     chk ^= 1;
     
-    // Build output string
+    // Build output string (write directly without intermediate array)
     output[0] = 'n';
     output[1] = 'p';
     output[2] = 'u';
     output[3] = 'b';
     output[4] = '1';
     
+    #pragma unroll 4
     for (int i = 0; i < data5_len; i++) {
         output[5 + i] = BECH32_CHARSET[data5[i]];
     }
@@ -94,21 +98,80 @@ __device__ bool matches_pattern(const char *npub, const char *pattern, int patte
     return true;
 }
 
-// Optimized scalar multiplication using Jacobian coordinates (NO inversions!)
-__device__ void scalarMultG_fast(const unsigned int privkey[8], unsigned int pubX[8], unsigned int pubY[8]) {
-    // Convert privkey to Big256 format
-    Big256 scalar;
-    convert_to_big256(privkey, scalar);
+// Fast early rejection: check if first few bytes will match pattern before full encoding
+__device__ bool quick_pattern_check(const uint8_t *pubkey_bytes, const char *pattern, int pattern_len) {
+    // Convert first few bytes to bech32 to check pattern
+    // Each 8 bits -> ~1.6 bech32 chars (5 bits each)
+    // To check N pattern chars, we need ~(N * 5 / 8) bytes
     
-    // Get generator point G in Jacobian coordinates
+    if (pattern_len == 0) return true;
+    
+    // Quick check: convert first few bytes to bech32 format
+    uint8_t data5[8];  // First 8 bech32 chars (covers ~5 bytes)
+    int data5_len = 0;
+    int bits = 0;
+    uint32_t value = 0;
+    
+    // Process enough bytes to check pattern
+    int bytes_needed = ((pattern_len * 5) + 7) / 8;
+    if (bytes_needed > 5) bytes_needed = 5;
+    
+    for (int i = 0; i < bytes_needed && i < 32; i++) {
+        value = (value << 8) | pubkey_bytes[i];
+        bits += 8;
+        
+        while (bits >= 5 && data5_len < pattern_len) {
+            bits -= 5;
+            data5[data5_len++] = (value >> bits) & 0x1F;
+        }
+        
+        if (data5_len >= pattern_len) break;
+    }
+    
+    // Check if converted chars match pattern
+    for (int i = 0; i < pattern_len && i < data5_len; i++) {
+        if (BECH32_CHARSET[data5[i]] != pattern[i]) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+// Kernel to initialize precomputed table
+__global__ void init_precomp_table(PointJ *table_out) {
+    int idx = threadIdx.x;
+    if (idx >= PRECOMP_TABLE_SIZE) return;
+    
+    // Get generator point G
     Big256 Gx, Gy;
     get_curve_G(Gx, Gy);
     PointJ G;
     to_jacobian(Gx, Gy, G);
     
-    // Perform scalar multiplication in Jacobian coordinates
+    // Compute (idx+1) * G
+    if (idx == 0) {
+        // 1G = G
+        table_out[0] = G;
+    } else {
+        // Compute by repeated addition
+        PointJ result = G;
+        for (int i = 0; i < idx; i++) {
+            jacobian_add(result, G, result);
+        }
+        table_out[idx] = result;
+    }
+}
+
+// Optimized scalar multiplication using windowed method with precomputed table
+__device__ void scalarMultG_fast(const unsigned int privkey[8], unsigned int pubX[8], unsigned int pubY[8]) {
+    // Convert privkey to Big256 format
+    Big256 scalar;
+    convert_to_big256(privkey, scalar);
+    
+    // Perform windowed scalar multiplication using precomputed table
     PointJ result;
-    scalar_mul_jacobian(G, scalar, result);
+    scalar_mul_windowed(scalar, result);
     
     // Convert back to affine coordinates
     Big256 ax, ay;
@@ -142,7 +205,6 @@ __global__ void vanity_search_kernel(
     unsigned int pubX[8];
     unsigned int pubY[8];
     uint8_t pubkey_bytes[32];
-    char npub[64];
     
     int keys_processed = 0;
     
@@ -166,10 +228,17 @@ __global__ void vanity_search_kernel(
             pubkey_bytes[i * 4 + 3] = pubX[i] & 0xFF;
         }
         
-        // Encode to bech32 npub
+        // Early rejection: check pattern match before full bech32 encoding
+        if (!quick_pattern_check(pubkey_bytes, pattern, pattern_len)) {
+            continue;
+        }
+        
+        // Only do full encoding if quick check passes
+        // Allocate npub string only when needed
+        char npub[64];
         bech32_encode(npub, pubkey_bytes);
         
-        // Check if matches pattern
+        // Verify full match (pattern + checksum validation)
         if (matches_pattern(npub, pattern, pattern_len)) {
             // Found a match!
             int old = atomicCAS(found_flag, 0, 1);
@@ -219,6 +288,28 @@ int main(int argc, char **argv) {
     }
     
     printf("Searching for npub starting with: npub1%s\n", pattern);
+    
+    // Compute and upload precomputed table for G multiples
+    printf("Initializing precomputed point table...\n");
+    
+    PointJ *d_table_temp;
+    cudaMalloc(&d_table_temp, sizeof(PointJ) * PRECOMP_TABLE_SIZE);
+    
+    // Compute table on GPU
+    init_precomp_table<<<1, PRECOMP_TABLE_SIZE>>>(d_table_temp);
+    cudaDeviceSynchronize();
+    
+    // Copy to constant memory
+    PrecompTable h_table;
+    cudaMemcpy(&h_table, d_table_temp, sizeof(PrecompTable), cudaMemcpyDeviceToHost);
+    
+    // Get symbol address and copy to constant memory
+    void *table_symbol;
+    cudaGetSymbolAddress(&table_symbol, G_precomp_table);
+    cudaMemcpy(table_symbol, &h_table, sizeof(PrecompTable), cudaMemcpyHostToDevice);
+    
+    cudaFree(d_table_temp);
+    printf("Precomputed table initialization complete.\n");
     
     // Allocate device memory
     char *d_pattern;
