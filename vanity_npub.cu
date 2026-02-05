@@ -126,7 +126,8 @@ __global__ void vanity_search_kernel(
     uint8_t *found_privkey,
     int *found_flag,
     unsigned long long *key_counter,
-    unsigned long long seed
+    unsigned long long seed,
+    int keys_per_thread
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     
@@ -143,7 +144,8 @@ __global__ void vanity_search_kernel(
     uint8_t pubkey_bytes[32];
     char npub[64];
     
-    while (!(*found_flag)) {
+    // Process a fixed number of keys per kernel launch
+    for (int iter = 0; iter < keys_per_thread && !(*found_flag); iter++) {
         // Increment key counter (each thread counts its own keys)
         atomicAdd(key_counter, 1ULL);
         
@@ -229,27 +231,35 @@ int main(int argc, char **argv) {
     cudaMemset(d_found_flag, 0, sizeof(int));
     cudaMemset(d_key_counter, 0, sizeof(unsigned long long));
     
-    // Launch kernel
+    // Kernel launch parameters
     int threads_per_block = 256;
-    int num_blocks = 256;
+    int num_blocks = 1024;  // Increased from 256
+    int keys_per_thread = 1024;  // Increased from 256 - each thread processes more keys per launch
     
     unsigned long long seed = time(NULL);
     
-    vanity_search_kernel<<<num_blocks, threads_per_block>>>(
-        d_pattern, pattern_len, d_found_privkey, d_found_flag, d_key_counter, seed
-    );
-    
-    // Poll for progress
+    // Launch kernel in iterations
     int found = 0;
     unsigned long long last_count = 0;
     auto start_time = std::chrono::high_resolution_clock::now();
     auto last_print = start_time;
     
     while (!found) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        // Launch kernel for one batch
+        vanity_search_kernel<<<num_blocks, threads_per_block>>>(
+            d_pattern, pattern_len, d_found_privkey, d_found_flag, d_key_counter, seed, keys_per_thread
+        );
         
+        // Wait for this batch to complete
+        cudaDeviceSynchronize();
+        
+        // Check if found
         cudaMemcpy(&found, d_found_flag, sizeof(int), cudaMemcpyDeviceToHost);
         
+        // Update seed for next iteration
+        seed++;
+        
+        // Print progress
         auto now = std::chrono::high_resolution_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_print).count();
         
@@ -269,10 +279,19 @@ int main(int argc, char **argv) {
             last_print = now;
         }
     }
-    printf("\n");
     
-    // Wait for completion
-    cudaDeviceSynchronize();
+    // Calculate final statistics
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    
+    unsigned long long total_keys;
+    cudaMemcpy(&total_keys, d_key_counter, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
+    
+    double total_seconds = total_duration / 1000.0;
+    double avg_keys_per_sec = total_keys / total_seconds;
+    
+    printf("\nTotal: %llu keys in %.2fs (avg %.2f keys/s)\n", 
+           total_keys, total_seconds, avg_keys_per_sec);
     
     // Check for errors
     cudaError_t err = cudaGetLastError();
@@ -281,11 +300,8 @@ int main(int argc, char **argv) {
         return 1;
     }
     
-    // Check if found
-    int found_flag;
-    cudaMemcpy(&found_flag, d_found_flag, sizeof(int), cudaMemcpyDeviceToHost);
-    
-    if (found_flag) {
+    // Display result
+    if (found) {
         uint8_t privkey[32];
         cudaMemcpy(privkey, d_found_privkey, 32, cudaMemcpyDeviceToHost);
         
@@ -296,7 +312,7 @@ int main(int argc, char **argv) {
         }
         printf("\n");
     } else {
-        printf("No match found (iterations limited for testing)\n");
+        printf("No match found\n");
     }
     
     // Cleanup
