@@ -1,7 +1,7 @@
 # CUDA Configuration
 # Override with: make COMPUTE_CAP=75 CUDA_HOME=/usr/local/cuda-11.8
-COMPUTE_CAP ?= 61
-CUDA_HOME ?= /usr/local/cuda-12.9
+COMPUTE_CAP ?= 75
+CUDA_HOME ?= /usr/local/cuda
 NVCC ?= $(CUDA_HOME)/bin/nvcc
 
 # Compiler settings
@@ -34,8 +34,8 @@ help:
 	@echo "  make help         - Show this help"
 	@echo ""
 	@echo "Configuration:"
-	@echo "  COMPUTE_CAP       - GPU compute capability (default: 61 for GTX 1070)"
-	@echo "  CUDA_HOME         - CUDA toolkit path (default: /usr/local/cuda-12.9)"
+	@echo "  COMPUTE_CAP       - GPU compute capability (default: 75 for RTX 20-series)"
+	@echo "  CUDA_HOME         - CUDA toolkit path (default: /usr/local/cuda)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make COMPUTE_CAP=75 CUDA_HOME=/usr/local/cuda-11.8"

@@ -38,11 +38,11 @@ Benchmarked performance on real hardware (pattern: "cuda"):
 ### Build on Linux/macOS
 
 ```bash
-# Default build (compute capability 6.1)
+# Default build (compute capability 7.5 - RTX 20-series and newer)
 make
 
 # Build for specific GPU
-make COMPUTE_CAP=121 CUDA_HOME=/usr/local/cuda-13.0
+make COMPUTE_CAP=89 CUDA_HOME=/usr/local/cuda-12.0
 
 # Auto-detect GPU settings
 make detect
