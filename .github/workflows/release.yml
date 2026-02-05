@@ -1,0 +1,86 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install CUDA Toolkit
+      uses: Jimver/cuda-toolkit@v0.2.30
+      with:
+        method: 'network'
+        sub-packages: '["nvcc"]'
+
+    - name: Build binary
+      run: |
+        make clean
+        make COMPUTE_CAP=75
+    
+    - name: Create .deb package
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        if [ -z "$VERSION" ]; then
+          VERSION="0.0.0"
+        fi
+        
+        # Use the build script
+        ./contrib/build-deb.sh ${VERSION}
+    
+    - name: Upload .deb artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: cuda-vanity-npub-linux
+        path: cuda-vanity-npub_*.deb
+  
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install CUDA Toolkit
+      uses: Jimver/cuda-toolkit@v0.2.30
+      with:
+        sub-packages: '["nvcc", "visual_studio_integration"]'
+    
+    - name: Build binary
+      run: |
+        nvcc -O3 -o vanity_npub.exe vanity_npub.cu -lcurand
+      shell: cmd
+    
+    - name: Upload .exe artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: cuda-vanity-npub-windows
+        path: vanity_npub.exe
+  
+  create-release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - name: Download Linux artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: cuda-vanity-npub-linux
+    
+    - name: Download Windows artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: cuda-vanity-npub-windows
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          cuda-vanity-npub_*.deb
+          vanity_npub.exe
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

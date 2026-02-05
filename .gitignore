@@ -1,1 +1,4 @@
 vanity_npub
+build/
+*.deb
+

@@ -1,0 +1,11 @@
+Package: cuda-vanity-npub
+Version: VERSION_PLACEHOLDER
+Section: utils
+Priority: optional
+Architecture: amd64
+Depends: libc6
+Maintainer: CUDA Vanity Npub <cuda-vanity-npub@example.com>
+Description: CUDA-accelerated vanity address generator for Nostr npub
+ A high-performance CUDA-accelerated vanity address generator for Nostr npub
+ addresses. Searches for Nostr keypairs whose npub (bech32-encoded public key)
+ starts with a specified pattern using GPU acceleration.
