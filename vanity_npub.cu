@@ -12,126 +12,31 @@
 // Bech32 charset (in constant memory for cache efficiency)
 __constant__ char BECH32_CHARSET[33] = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 
-__device__ uint32_t bech32_polymod_step(uint32_t pre) {
-    uint8_t b = pre >> 25;
-    return ((pre & 0x1FFFFFF) << 5) ^
-        (-((b >> 0) & 1) & 0x3b6a57b2UL) ^
-        (-((b >> 1) & 1) & 0x26508e6dUL) ^
-        (-((b >> 2) & 1) & 0x1ea119faUL) ^
-        (-((b >> 3) & 1) & 0x3d4233ddUL) ^
-        (-((b >> 4) & 1) & 0x2a1462b3UL);
-}
-
-__device__ void bech32_encode(char *output, const uint8_t *pubkey) {
-    // Convert 8-bit data to 5-bit groups
-    uint8_t data5[52];
-    int data5_len = 0;
+// Partial bech32 encode - only encode enough characters to check pattern
+// Skips the constant "npub1" prefix and encodes only the data portion
+// Returns false if pattern doesn't match, true if it matches
+__device__ bool bech32_encode_and_check_pattern(const uint8_t *pubkey, const char *pattern, int pattern_len) {
+    // We skip encoding the HRP "npub1" since it's constant
+    // Just encode the data portion and check against pattern
     
     int bits = 0;
     uint32_t value = 0;
+    int chars_encoded = 0;
     
-    // Unrolled for better performance
-    #pragma unroll
-    for (int i = 0; i < 32; i++) {
+    // Process bytes until we have enough 5-bit groups for the pattern
+    for (int i = 0; i < 32 && chars_encoded < pattern_len; i++) {
         value = (value << 8) | pubkey[i];
         bits += 8;
         
-        while (bits >= 5) {
+        while (bits >= 5 && chars_encoded < pattern_len) {
             bits -= 5;
-            data5[data5_len++] = (value >> bits) & 0x1F;
-        }
-    }
-    
-    if (bits > 0) {
-        data5[data5_len++] = (value << (5 - bits)) & 0x1F;
-    }
-    
-    // Calculate checksum with precomputed HRP expansion
-    uint32_t chk = 1;
-    
-    // HRP expansion for "npub" (precomputed)
-    chk = bech32_polymod_step(chk) ^ 3;  // 'n' >> 5
-    chk = bech32_polymod_step(chk) ^ 3;  // 'n' & 0x1f
-    chk = bech32_polymod_step(chk) ^ 3;  // 'p' >> 5
-    chk = bech32_polymod_step(chk) ^ 3;  // 'p' & 0x1f  (note: simplified, actual would be 16)
-    chk = bech32_polymod_step(chk) ^ 3;  // 'u' >> 5
-    chk = bech32_polymod_step(chk) ^ 5;  // 'u' & 0x1f (actual value)
-    chk = bech32_polymod_step(chk) ^ 3;  // 'b' >> 5
-    chk = bech32_polymod_step(chk) ^ 2;  // 'b' & 0x1f (actual value)
-    chk = bech32_polymod_step(chk) ^ 0;  // separator
-    
-    #pragma unroll 4
-    for (int i = 0; i < data5_len; i++) {
-        chk = bech32_polymod_step(chk) ^ data5[i];
-    }
-    
-    for (int i = 0; i < 6; i++) {
-        chk = bech32_polymod_step(chk);
-    }
-    chk ^= 1;
-    
-    // Build output string (write directly without intermediate array)
-    output[0] = 'n';
-    output[1] = 'p';
-    output[2] = 'u';
-    output[3] = 'b';
-    output[4] = '1';
-    
-    #pragma unroll 4
-    for (int i = 0; i < data5_len; i++) {
-        output[5 + i] = BECH32_CHARSET[data5[i]];
-    }
-    
-    for (int i = 0; i < 6; i++) {
-        output[5 + data5_len + i] = BECH32_CHARSET[(chk >> (5 * (5 - i))) & 0x1f];
-    }
-    
-    output[5 + data5_len + 6] = '\0';
-}
-
-__device__ bool matches_pattern(const char *npub, const char *pattern, int pattern_len) {
-    for (int i = 0; i < pattern_len; i++) {
-        if (npub[5 + i] != pattern[i]) {  // Skip "npub1"
-            return false;
-        }
-    }
-    return true;
-}
-
-// Fast early rejection: check if first few bytes will match pattern before full encoding
-__device__ bool quick_pattern_check(const uint8_t *pubkey_bytes, const char *pattern, int pattern_len) {
-    // Convert first few bytes to bech32 to check pattern
-    // Each 8 bits -> ~1.6 bech32 chars (5 bits each)
-    // To check N pattern chars, we need ~(N * 5 / 8) bytes
-    
-    if (pattern_len == 0) return true;
-    
-    // Quick check: convert first few bytes to bech32 format
-    uint8_t data5[8];  // First 8 bech32 chars (covers ~5 bytes)
-    int data5_len = 0;
-    int bits = 0;
-    uint32_t value = 0;
-    
-    // Process enough bytes to check pattern
-    int bytes_needed = ((pattern_len * 5) + 7) / 8;
-    if (bytes_needed > 5) bytes_needed = 5;
-    
-    for (int i = 0; i < bytes_needed && i < 32; i++) {
-        value = (value << 8) | pubkey_bytes[i];
-        bits += 8;
-        
-        while (bits >= 5 && data5_len < pattern_len) {
-            bits -= 5;
-            data5[data5_len++] = (value >> bits) & 0x1F;
-        }
-        
-        if (data5_len >= pattern_len) break;
-    }
-    
-    // Check if converted chars match pattern
-    for (int i = 0; i < pattern_len && i < data5_len; i++) {
-        if (BECH32_CHARSET[data5[i]] != pattern[i]) {
-            return false;
+            uint8_t data5 = (value >> bits) & 0x1F;
+            
+            // Check if this character matches the pattern
+            if (BECH32_CHARSET[data5] != pattern[chars_encoded]) {
+                return false;
+            }
+            chars_encoded++;
         }
     }
     
@@ -187,6 +92,7 @@ __global__ void vanity_search_kernel(
     const char *pattern,
     int pattern_len,
     uint8_t *found_privkey,
+    uint8_t *found_pubkey,
     int *found_flag,
     unsigned long long *key_counter,
     unsigned long long seed,
@@ -228,18 +134,8 @@ __global__ void vanity_search_kernel(
             pubkey_bytes[i * 4 + 3] = pubX[i] & 0xFF;
         }
         
-        // Early rejection: check pattern match before full bech32 encoding
-        if (!quick_pattern_check(pubkey_bytes, pattern, pattern_len)) {
-            continue;
-        }
-        
-        // Only do full encoding if quick check passes
-        // Allocate npub string only when needed
-        char npub[64];
-        bech32_encode(npub, pubkey_bytes);
-        
-        // Verify full match (pattern + checksum validation)
-        if (matches_pattern(npub, pattern, pattern_len)) {
+        // Partial encoding: only encode enough to check the pattern
+        if (bech32_encode_and_check_pattern(pubkey_bytes, pattern, pattern_len)) {
             // Found a match!
             int old = atomicCAS(found_flag, 0, 1);
             if (old == 0) {
@@ -249,6 +145,10 @@ __global__ void vanity_search_kernel(
                     found_privkey[i * 4 + 1] = (privkey[i] >> 16) & 0xFF;
                     found_privkey[i * 4 + 2] = (privkey[i] >> 8) & 0xFF;
                     found_privkey[i * 4 + 3] = privkey[i] & 0xFF;
+                }
+                // Save pubkey (already in pubkey_bytes)
+                for (int i = 0; i < 32; i++) {
+                    found_pubkey[i] = pubkey_bytes[i];
                 }
             }
             return;
@@ -314,11 +214,13 @@ int main(int argc, char **argv) {
     // Allocate device memory
     char *d_pattern;
     uint8_t *d_found_privkey;
+    uint8_t *d_found_pubkey;
     int *d_found_flag;
     unsigned long long *d_key_counter;
     
     cudaMalloc(&d_pattern, pattern_len + 1);
     cudaMalloc(&d_found_privkey, 32);
+    cudaMalloc(&d_found_pubkey, 32);
     cudaMalloc(&d_found_flag, sizeof(int));
     cudaMalloc(&d_key_counter, sizeof(unsigned long long));
     
@@ -342,7 +244,7 @@ int main(int argc, char **argv) {
     while (!found) {
         // Launch kernel for one batch
         vanity_search_kernel<<<num_blocks, threads_per_block>>>(
-            d_pattern, pattern_len, d_found_privkey, d_found_flag, d_key_counter, seed, keys_per_thread
+            d_pattern, pattern_len, d_found_privkey, d_found_pubkey, d_found_flag, d_key_counter, seed, keys_per_thread
         );
         
         // Wait for this batch to complete
@@ -399,12 +301,21 @@ int main(int argc, char **argv) {
     // Display result
     if (found) {
         uint8_t privkey[32];
+        uint8_t pubkey[32];
         cudaMemcpy(privkey, d_found_privkey, 32, cudaMemcpyDeviceToHost);
+        cudaMemcpy(pubkey, d_found_pubkey, 32, cudaMemcpyDeviceToHost);
         
-        printf("\nFound matching npub!\n");
+        printf("\nFound matching npub!\n\n");
+        
         printf("Private key (hex): ");
         for (int i = 0; i < 32; i++) {
             printf("%02x", privkey[i]);
+        }
+        printf("\n");
+        
+        printf("Public key (hex):  ");
+        for (int i = 0; i < 32; i++) {
+            printf("%02x", pubkey[i]);
         }
         printf("\n");
     } else {
@@ -414,7 +325,9 @@ int main(int argc, char **argv) {
     // Cleanup
     cudaFree(d_pattern);
     cudaFree(d_found_privkey);
+    cudaFree(d_found_pubkey);
     cudaFree(d_found_flag);
+    cudaFree(d_key_counter);
     
     return 0;
 }
