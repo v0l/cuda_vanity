@@ -15,7 +15,7 @@ jobs:
       uses: Jimver/cuda-toolkit@v0.2.30
       with:
         method: 'network'
-        sub-packages: '["nvcc"]'
+        sub-packages: '["nvcc", "cudart", "curand-dev"]'
 
     - name: Build binary
       run: |
@@ -45,7 +45,7 @@ jobs:
     - name: Install CUDA Toolkit
       uses: Jimver/cuda-toolkit@v0.2.30
       with:
-        sub-packages: '["nvcc", "visual_studio_integration"]'
+        sub-packages: '["nvcc", "cudart", "curand", "curand_dev", "visual_studio_integration"]'
     
     - name: Build binary
       run: |
