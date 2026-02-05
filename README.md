@@ -55,17 +55,11 @@ make help
 **Option 1: Visual Studio (Recommended)**
 
 ```cmd
-# Using default compute capability 6.1 (GTX 1070)
-nvcc -O3 -std=c++11 -gencode=arch=compute_61,code="sm_61,compute_61" -o vanity_npub.exe vanity_npub.cu -lcurand
+# Simple build (auto-detects GPU architecture)
+nvcc -o vanity_npub.exe vanity_npub.cu
 
-# For RTX 50-series (compute capability 12.1)
-nvcc -O3 -std=c++11 -gencode=arch=compute_121,code="sm_121,compute_121" -o vanity_npub.exe vanity_npub.cu -lcurand
-
-# For RTX 40-series (compute capability 8.9)
-nvcc -O3 -std=c++11 -gencode=arch=compute_89,code="sm_89,compute_89" -o vanity_npub.exe vanity_npub.cu -lcurand
-
-# For RTX 30-series (compute capability 8.6)
-nvcc -O3 -std=c++11 -gencode=arch=compute_86,code="sm_86,compute_86" -o vanity_npub.exe vanity_npub.cu -lcurand
+# Or specify compute capability manually
+nvcc -gencode=arch=compute_89,code=sm_89 -o vanity_npub.exe vanity_npub.cu
 ```
 
 **Option 2: WSL (Windows Subsystem for Linux)**

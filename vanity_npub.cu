@@ -189,6 +189,19 @@ int main(int argc, char **argv) {
     
     printf("Searching for npub starting with: npub1%s\n", pattern);
     
+    // Check CUDA availability first
+    int device_count = 0;
+    cudaError_t err = cudaGetDeviceCount(&device_count);
+    if (err != cudaSuccess || device_count == 0) {
+        fprintf(stderr, "Error: No CUDA-capable devices found!\n");
+        fprintf(stderr, "CUDA Error: %s\n", cudaGetErrorString(err));
+        fprintf(stderr, "\nPlease ensure:\n");
+        fprintf(stderr, "1. You have an NVIDIA GPU installed\n");
+        fprintf(stderr, "2. CUDA drivers are properly installed\n");
+        fprintf(stderr, "3. Your GPU supports CUDA\n");
+        return 1;
+    }
+    
     // Compute and upload precomputed table for G multiples
     printf("Initializing precomputed point table...\n");
     
@@ -197,7 +210,12 @@ int main(int argc, char **argv) {
     
     // Compute table on GPU
     init_precomp_table<<<1, PRECOMP_TABLE_SIZE>>>(d_table_temp);
-    cudaDeviceSynchronize();
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        fprintf(stderr, "Error: Failed to initialize precomputed table!\n");
+        fprintf(stderr, "CUDA Error: %s\n", cudaGetErrorString(err));
+        return 1;
+    }
     
     // Copy to constant memory
     PrecompTable h_table;
@@ -235,8 +253,24 @@ int main(int argc, char **argv) {
     
     // Get device properties to optimize configuration
     cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, 0);
+    err = cudaGetDeviceProperties(&prop, 0);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "Error: Failed to get device properties!\n");
+        fprintf(stderr, "CUDA Error: %s\n", cudaGetErrorString(err));
+        return 1;
+    }
+    
     int compute_capability = prop.major * 10 + prop.minor;
+    
+    if (compute_capability == 0) {
+        fprintf(stderr, "Error: Invalid compute capability detected (0.0)\n");
+        fprintf(stderr, "This usually means CUDA is not properly initialized.\n");
+        fprintf(stderr, "\nPlease ensure:\n");
+        fprintf(stderr, "1. NVIDIA drivers are up to date\n");
+        fprintf(stderr, "2. CUDA toolkit is properly installed\n");
+        fprintf(stderr, "3. On Windows: Run as Administrator if needed\n");
+        return 1;
+    }
     
     if (compute_capability >= 120) {
         // Blackwell (sm_120+): More SMs, more registers available
@@ -285,8 +319,21 @@ int main(int argc, char **argv) {
             d_pattern, pattern_len, d_found_privkey, d_found_pubkey, d_found_flag, d_key_counter, seed, keys_per_thread
         );
         
+        // Check for kernel launch errors
+        err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            fprintf(stderr, "\nError: Kernel launch failed!\n");
+            fprintf(stderr, "CUDA Error: %s\n", cudaGetErrorString(err));
+            return 1;
+        }
+        
         // Wait for this batch to complete
-        cudaDeviceSynchronize();
+        err = cudaDeviceSynchronize();
+        if (err != cudaSuccess) {
+            fprintf(stderr, "\nError: Kernel execution failed!\n");
+            fprintf(stderr, "CUDA Error: %s\n", cudaGetErrorString(err));
+            return 1;
+        }
         
         // Check if found
         cudaMemcpy(&found, d_found_flag, sizeof(int), cudaMemcpyDeviceToHost);
@@ -330,7 +377,7 @@ int main(int argc, char **argv) {
            total_keys, total_seconds, avg_keys_per_sec);
     
     // Check for errors
-    cudaError_t err = cudaGetLastError();
+        err = cudaGetLastError();
     if (err != cudaSuccess) {
         printf("CUDA error: %s\n", cudaGetErrorString(err));
         return 1;
