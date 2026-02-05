@@ -228,10 +228,48 @@ int main(int argc, char **argv) {
     cudaMemset(d_found_flag, 0, sizeof(int));
     cudaMemset(d_key_counter, 0, sizeof(unsigned long long));
     
-    // Kernel launch parameters
-    int threads_per_block = 256;
-    int num_blocks = 1024;  // Increased from 256
-    int keys_per_thread = 1024;  // Increased from 256 - each thread processes more keys per launch
+    // Kernel launch parameters - optimized per architecture
+    int threads_per_block;
+    int num_blocks;
+    int keys_per_thread;
+    
+    // Get device properties to optimize configuration
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, 0);
+    int compute_capability = prop.major * 10 + prop.minor;
+    
+    if (compute_capability >= 120) {
+        // Blackwell (sm_120+): More SMs, more registers available
+        // GB10 has 128 SMs, can handle more parallelism
+        threads_per_block = 256;
+        num_blocks = 2048;  // Double blocks for more SMs
+        keys_per_thread = 512;  // Reduce per-thread work for faster iterations
+    } else if (compute_capability >= 89) {
+        // Ada Lovelace (sm_89): RTX 40-series
+        threads_per_block = 256;
+        num_blocks = 1536;
+        keys_per_thread = 768;
+    } else if (compute_capability >= 86) {
+        // Ampere (sm_86): RTX 30-series
+        threads_per_block = 256;
+        num_blocks = 1280;
+        keys_per_thread = 896;
+    } else if (compute_capability >= 75) {
+        // Turing (sm_75): RTX 20-series
+        threads_per_block = 256;
+        num_blocks = 1024;
+        keys_per_thread = 1024;
+    } else {
+        // Pascal and older (sm_61 and below): Limited registers
+        threads_per_block = 256;
+        num_blocks = 1024;
+        keys_per_thread = 1024;
+    }
+    
+    printf("GPU: %s (compute %d.%d)\n", prop.name, prop.major, prop.minor);
+    printf("Configuration: %d blocks × %d threads × %d keys/thread = %llu keys/batch\n",
+           num_blocks, threads_per_block, keys_per_thread,
+           (unsigned long long)num_blocks * threads_per_block * keys_per_thread);
     
     unsigned long long seed = time(NULL);
     

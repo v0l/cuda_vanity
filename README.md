@@ -8,7 +8,7 @@ Benchmarked performance on real hardware (pattern: "cuda"):
 
 | GPU | Architecture | Compute Capability | Avg Hash Rate | vs rana CPU |
 |-----|--------------|-------------------|---------------|-------------|
-| **NVIDIA GB10** | Blackwell | 12.1 | **3.21M keys/s** | **1.93x faster** ✅ |
+| **NVIDIA GB10** | Blackwell | 12.1 | **4.06M keys/s** | **2.45x faster** ✅ |
 | GTX 1070 | Pascal | 6.1 | **532K keys/s** | 3.1x slower |
 
 **CPU Comparison:**
@@ -19,6 +19,7 @@ Benchmarked performance on real hardware (pattern: "cuda"):
 - ✅ **Correct secp256k1 implementation** - Generates valid Nostr keypairs
 - ✅ **Optimized Jacobian coordinates** - No expensive modular inversions during computation
 - ✅ **Windowed scalar multiplication** - 4-bit windows with precomputed point tables
+- ✅ **Architecture-specific tuning** - Optimized kernel configuration per GPU generation
 - ✅ **Early pattern rejection** - Fast rejection before full bech32 encoding
 - ✅ **Fast pattern matching** - Validates bech32 character set (rejects b, i, o, 1)
 - ✅ **Real-time progress** - Shows hash rate and keys generated
@@ -116,14 +117,17 @@ Precomputed table initialization complete.
 Total: 10245632 keys in 3.00s (avg 3415210.67 keys/s)
 
 Found matching npub!
-Private key (hex): 55d1e79e81ca9d3286bffcee490cc3483b555747f1ce47cd9928912859aaa0b4
+
+Private key (hex): 16d8087ec4f5fc3d1e6e379f19058777f8578c7db8f1b9212a38a10f17b748e7
+Public key (hex):  5e60b2b4dbe489b199dff9cb03e992847ada4e6b4b52478dfbd129f3c27b3c68
 ```
 
-### Verify Keys
+### Encode Keys
 
 ```bash
-# Verify with nak CLI
-echo "<privkey_hex>" | nak key public | nak encode npub
+# Encode with nak CLI
+echo "<privkey_hex>" | nak encode nsec
+echo "<pubkey_hex>" | nak encode npub
 ```
 
 ## Pattern Constraints
@@ -136,13 +140,13 @@ echo "<privkey_hex>" | nak key public | nak encode npub
 
 Each additional character increases difficulty by ~32x:
 
-| Pattern Length | Estimated Keys | Time (GB10 @ 3.21M keys/s) | Time (GTX 1070 @ 532K keys/s) |
+| Pattern Length | Estimated Keys | Time (GB10 @ 4.06M keys/s) | Time (GTX 1070 @ 532K keys/s) |
 |----------------|----------------|----------------------------|-------------------------------|
-| 4 chars | ~1M | 0.3s | 1.9s |
-| 5 chars | ~33M | 10s | 62s |
-| 6 chars | ~1B | 5 min | 31 min |
-| 7 chars | ~34B | 2.9 hours | 18 hours |
-| 8 chars | ~1T | 3.6 days | 22 days |
+| 4 chars | ~1M | 0.25s | 1.9s |
+| 5 chars | ~33M | 8s | 62s |
+| 6 chars | ~1B | 4 min | 31 min |
+| 7 chars | ~34B | 2.3 hours | 18 hours |
+| 8 chars | ~1T | 2.9 days | 22 days |
 
 ## Testing
 
@@ -191,14 +195,17 @@ This will run 5 iterations and show min/max/avg hash rates.
 
 ### Kernel Configuration
 
-```c
-threads_per_block = 256
-num_blocks = 1024
-keys_per_thread = 1024
-// Total: ~268M keys per batch
+The kernel automatically detects your GPU architecture and optimizes configuration:
 
-// Register usage: 126 registers/thread
-```
+| Architecture | Compute Cap | Blocks | Threads | Keys/Thread | Total Keys/Batch |
+|--------------|-------------|--------|---------|-------------|------------------|
+| **Blackwell** | sm_120+ | 2048 | 256 | 512 | 268M |
+| **Ada** | sm_89 | 1536 | 256 | 768 | 302M |
+| **Ampere** | sm_86 | 1280 | 256 | 896 | 293M |
+| **Turing** | sm_75 | 1024 | 256 | 1024 | 268M |
+| **Pascal** | sm_61 | 1024 | 256 | 1024 | 268M |
+
+**Register usage:** 111 registers/thread (GTX 1070), 128 registers/thread (GB10)
 
 ## Known Limitations
 
