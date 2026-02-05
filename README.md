@@ -8,8 +8,8 @@ Benchmarked performance on real hardware (pattern: "cuda"):
 
 | GPU | Architecture | Compute Capability | Keys/Second | vs rana CPU |
 |-----|--------------|-------------------|---------------|-------------|
-| **NVIDIA GB10** | Blackwell | 12.1 | **4.06M keys/s** | **3.0x faster** ✅ |
-| **RTX 2060** | Turing | 7.5 | **2.49M keys/s** | **1.8x faster** ✅ |
+| **NVIDIA GB10** | Blackwell | 12.1 | **4.2M keys/s** | **3.1x faster** ✅ |
+| **RTX 2060** | Turing | 7.5 | **2.1M keys/s** | **1.6x faster** ✅ |
 | GTX 1070 | Pascal | 6.1 | **532K keys/s** | 2.5x slower |
 
 **CPU Comparison:**
@@ -135,13 +135,13 @@ echo "<pubkey_hex>" | nak encode npub
 
 Each additional character increases difficulty by ~32x:
 
-| Pattern Length | Estimated Keys | GB10 @ 4.06M | RTX 2060 @ 2.49M | GTX 1070 @ 532K |
+| Pattern Length | Estimated Keys | GB10 @ 4.2M | RTX 2060 @ 2.1M | GTX 1070 @ 532K |
 |----------------|----------------|--------------|------------------|-----------------|
-| 4 chars | ~1M | 0.25s | 0.4s | 1.9s |
-| 5 chars | ~33M | 8s | 13s | 62s |
-| 6 chars | ~1B | 4 min | 7 min | 31 min |
-| 7 chars | ~34B | 2.3 hours | 3.8 hours | 18 hours |
-| 8 chars | ~1T | 2.9 days | 5.1 days | 22 days |
+| 4 chars | ~1M | 0.24s | 0.48s | 1.9s |
+| 5 chars | ~33M | 7.9s | 15.7s | 62s |
+| 6 chars | ~1B | 4.2 min | 8.4 min | 31 min |
+| 7 chars | ~34B | 2.2 hours | 4.5 hours | 18 hours |
+| 8 chars | ~1T | 2.8 days | 5.5 days | 22 days |
 
 ## Testing
 
