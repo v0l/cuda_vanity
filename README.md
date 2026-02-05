@@ -4,32 +4,15 @@ A high-performance CUDA-accelerated vanity address generator for Nostr npub addr
 
 ## Performance
 
-Benchmarked performance on real hardware:
+Benchmarked performance on real hardware (pattern: "cuda"):
 
-| GPU | Architecture | Compute Capability | Performance | vs rana CPU |
-|-----|--------------|-------------------|-------------|-------------|
-| GB10 | Blackwell | 12.1 | **~2.0M keys/s** | **1.2x faster** ✅ |
-| GTX 1070 | Pascal | 6.1 | ~150K keys/s | 11x slower |
+| GPU | Architecture | Compute Capability | Avg Hash Rate | vs rana CPU |
+|-----|--------------|-------------------|---------------|-------------|
+| **NVIDIA GB10** | Blackwell | 12.1 | **2.08M keys/s** | **1.25x faster** ✅ |
+| GTX 1070 | Pascal | 6.1 | 154K keys/s | 10.8x slower |
 
 **CPU Comparison:**
 - **rana** on Intel i9-14900K (24 cores, 32 threads): **~1.66M keys/s**
-- This CUDA implementation on RTX 50-series: **~2.0M keys/s** (1.2x faster)
-
-The CUDA implementation beats a high-end 24-core CPU on modern GPUs!
-
-### Why the Difference?
-
-The **RTX 50-series** benefits from:
-- Modern architecture (2025) with better instruction throughput
-- Higher memory bandwidth and more CUDA cores
-- Better compiler optimizations for newer compute capabilities
-
-The **GTX 1070** (2016) is limited by:
-- Older Pascal architecture with lower instruction throughput
-- High register usage (163 registers/thread) limiting occupancy on older GPUs
-- Fewer optimization features in older compute capabilities
-
-**Bottom line**: On modern GPUs, this CUDA implementation **beats CPU implementations**. On older GPUs, it's architecture-limited but still provides GPU acceleration.
 
 ## Features
 
@@ -107,13 +90,13 @@ echo "<privkey_hex>" | nak key public | nak encode npub
 
 Each additional character increases difficulty by ~32x:
 
-| Pattern Length | Estimated Keys | Time (RTX 50-series @ 2M keys/s) | Time (GTX 1070 @ 150K keys/s) |
-|----------------|----------------|----------------------------------|-------------------------------|
-| 4 chars | ~1M | 0.5s | 7s |
-| 5 chars | ~33M | 17s | 3.7 min |
-| 6 chars | ~1B | 8.5 min | 1.9 hours |
-| 7 chars | ~34B | 4.7 hours | 2.6 days |
-| 8 chars | ~1T | 6.4 days | 77 days |
+| Pattern Length | Estimated Keys | Time (GB10 @ 2.08M keys/s) | Time (GTX 1070 @ 154K keys/s) |
+|----------------|----------------|----------------------------|-------------------------------|
+| 4 chars | ~1M | 0.5s | 6.5s |
+| 5 chars | ~33M | 16s | 3.6 min |
+| 6 chars | ~1B | 8 min | 1.8 hours |
+| 7 chars | ~34B | 4.5 hours | 2.5 days |
+| 8 chars | ~1T | 6 days | 75 days |
 
 ## Testing
 
@@ -172,7 +155,7 @@ keys_per_thread = 1024
 1. **Initial naive implementation**: ~9,000 keys/s (affine coordinates)
 2. **Jacobian coordinates**: ~144,000 keys/s (16x speedup)
 3. **Fixed batch termination**: Proper performance on modern GPUs
-4. **Current**: 2M keys/s on RTX 50-series, 150K keys/s on GTX 1070
+4. **Current**: 2.08M keys/s on GB10, 154K keys/s on GTX 1070
 
 ## Known Limitations
 
