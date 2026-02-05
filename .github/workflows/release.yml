@@ -11,12 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    
     - name: Install CUDA Toolkit
       uses: Jimver/cuda-toolkit@v0.2.30
       with:
         method: 'network'
-        sub-packages: '["nvcc", "cudart", "curand-dev"]'
-
+    
     - name: Build binary
       run: |
         make clean
@@ -42,10 +42,11 @@ jobs:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
+    
     - name: Install CUDA Toolkit
       uses: Jimver/cuda-toolkit@v0.2.30
       with:
-        sub-packages: '["nvcc", "cudart", "curand", "curand_dev", "visual_studio_integration"]'
+        method: 'network'
     
     - name: Build binary
       run: |
