@@ -11,8 +11,19 @@ fi
 PATTERN=$1
 ITERATIONS=5
 
+# Get GPU info
+GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
+GPU_COMPUTE=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1)
+
 echo "========================================"
 echo "CUDA Vanity Address Benchmark"
+echo "========================================"
+if [ -n "$GPU_NAME" ]; then
+    echo "GPU: $GPU_NAME"
+    if [ -n "$GPU_COMPUTE" ]; then
+        echo "Compute Capability: $GPU_COMPUTE"
+    fi
+fi
 echo "Pattern: npub1$PATTERN"
 echo "Iterations: $ITERATIONS"
 echo "========================================"
