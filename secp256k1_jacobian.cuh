@@ -9,13 +9,69 @@
 struct Big256 { uint32_t w[8]; };
 struct Big512 { uint32_t w[16]; };
 
+// Architecture-specific optimizations
+#if __CUDA_ARCH__ >= 750  // Turing and newer
+    #define USE_PTX_INTRINSICS 1
+#else
+    #define USE_PTX_INTRINSICS 0
+#endif
+
+#if USE_PTX_INTRINSICS
+// PTX assembly intrinsics for add-with-carry (Turing+)
+__device__ inline uint32_t add_cc(uint32_t a, uint32_t b) {
+    uint32_t result;
+    asm("add.cc.u32 %0, %1, %2;" : "=r"(result) : "r"(a), "r"(b));
+    return result;
+}
+
+__device__ inline uint32_t addc_cc(uint32_t a, uint32_t b) {
+    uint32_t result;
+    asm("addc.cc.u32 %0, %1, %2;" : "=r"(result) : "r"(a), "r"(b));
+    return result;
+}
+
+__device__ inline uint32_t addc(uint32_t a, uint32_t b) {
+    uint32_t result;
+    asm("addc.u32 %0, %1, %2;" : "=r"(result) : "r"(a), "r"(b));
+    return result;
+}
+
+__device__ inline uint32_t sub_cc(uint32_t a, uint32_t b) {
+    uint32_t result;
+    asm("sub.cc.u32 %0, %1, %2;" : "=r"(result) : "r"(a), "r"(b));
+    return result;
+}
+
+__device__ inline uint32_t subc_cc(uint32_t a, uint32_t b) {
+    uint32_t result;
+    asm("subc.cc.u32 %0, %1, %2;" : "=r"(result) : "r"(a), "r"(b));
+    return result;
+}
+
+__device__ inline uint32_t subc(uint32_t a, uint32_t b) {
+    uint32_t result;
+    asm("subc.u32 %0, %1, %2;" : "=r"(result) : "r"(a), "r"(b));
+    return result;
+}
+#endif
+
 // Helpers
-__device__ inline void big256_set_zero(Big256& a) { for (int i = 0; i < 8; i++) a.w[i] = 0; }
-__device__ inline void big512_set_zero(Big512& a) { for (int i = 0; i < 16; i++) a.w[i] = 0; }
-__device__ inline void copy256(const Big256& src, Big256& dst) { for (int i = 0; i < 8; i++) dst.w[i] = src.w[i]; }
+__device__ inline void big256_set_zero(Big256& a) { 
+    #pragma unroll
+    for (int i = 0; i < 8; i++) a.w[i] = 0; 
+}
+__device__ inline void big512_set_zero(Big512& a) { 
+    #pragma unroll
+    for (int i = 0; i < 16; i++) a.w[i] = 0; 
+}
+__device__ inline void copy256(const Big256& src, Big256& dst) { 
+    #pragma unroll
+    for (int i = 0; i < 8; i++) dst.w[i] = src.w[i]; 
+}
 
 // Compare
 __device__ inline int cmp256(const Big256& a, const Big256& b) {
+    #pragma unroll
     for (int i = 7; i >= 0; i--) {
         if (a.w[i] < b.w[i]) return -1;
         if (a.w[i] > b.w[i]) return 1;
@@ -23,32 +79,63 @@ __device__ inline int cmp256(const Big256& a, const Big256& b) {
     return 0;
 }
 
-// Add mod 2^256
+// Add mod 2^256 (architecture-adaptive)
 __device__ inline void add256(const Big256& a, const Big256& b, Big256& r) {
+#if USE_PTX_INTRINSICS
+    // Use PTX intrinsics on newer GPUs
+    r.w[0] = add_cc(a.w[0], b.w[0]);
+    r.w[1] = addc_cc(a.w[1], b.w[1]);
+    r.w[2] = addc_cc(a.w[2], b.w[2]);
+    r.w[3] = addc_cc(a.w[3], b.w[3]);
+    r.w[4] = addc_cc(a.w[4], b.w[4]);
+    r.w[5] = addc_cc(a.w[5], b.w[5]);
+    r.w[6] = addc_cc(a.w[6], b.w[6]);
+    r.w[7] = addc(a.w[7], b.w[7]);
+#else
+    // Use standard approach on older GPUs
     uint64_t carry = 0;
+    #pragma unroll
     for (int i = 0; i < 8; i++) {
         uint64_t t = (uint64_t)a.w[i] + b.w[i] + carry;
         r.w[i] = (uint32_t)t;
         carry = t >> 32;
     }
+#endif
 }
 
-// Sub (assume a >= b)
+// Sub (assume a >= b) - architecture-adaptive
 __device__ inline void sub256(const Big256& a, const Big256& b, Big256& r) {
+#if USE_PTX_INTRINSICS
+    // Use PTX intrinsics on newer GPUs
+    r.w[0] = sub_cc(a.w[0], b.w[0]);
+    r.w[1] = subc_cc(a.w[1], b.w[1]);
+    r.w[2] = subc_cc(a.w[2], b.w[2]);
+    r.w[3] = subc_cc(a.w[3], b.w[3]);
+    r.w[4] = subc_cc(a.w[4], b.w[4]);
+    r.w[5] = subc_cc(a.w[5], b.w[5]);
+    r.w[6] = subc_cc(a.w[6], b.w[6]);
+    r.w[7] = subc(a.w[7], b.w[7]);
+#else
+    // Use standard approach on older GPUs
     uint64_t borrow = 0;
+    #pragma unroll
     for (int i = 0; i < 8; i++) {
         uint64_t av = (uint64_t)a.w[i];
         uint64_t bv = (uint64_t)b.w[i] + borrow;
         if (av >= bv) { r.w[i] = (uint32_t)(av - bv); borrow = 0; }
         else { r.w[i] = (uint32_t)((1ULL << 32) + av - bv); borrow = 1; }
     }
+#endif
 }
 
 // Multiply: Big256 * Big256 -> Big512
 __device__ inline void mul256(const Big256& a, const Big256& b, Big512& c) {
+    #pragma unroll
     for (int i = 0; i < 16; i++) c.w[i] = 0;
+    #pragma unroll
     for (int i = 0; i < 8; i++) {
         uint64_t carry = 0;
+        #pragma unroll
         for (int j = 0; j < 8; j++) {
             uint64_t t = (uint64_t)a.w[i] * b.w[j] + c.w[i + j] + carry;
             c.w[i + j] = (uint32_t)t;
@@ -200,8 +287,14 @@ __device__ inline void get_curve_G(Big256& Gx, Big256& Gy) {
 struct PointJ { Big256 X, Y, Z; };
 
 // Precomputed table for windowed scalar multiplication
-// Stores [1G, 2G, 3G, ..., 15G] in Jacobian coordinates
-#define PRECOMP_TABLE_SIZE 16
+// Adaptive window size based on GPU architecture
+#if __CUDA_ARCH__ >= 750  // Turing and newer (RTX 20xx+)
+    #define PRECOMP_TABLE_SIZE 32
+    #define WINDOW_BITS 5
+#else  // Pascal and older
+    #define PRECOMP_TABLE_SIZE 16
+    #define WINDOW_BITS 4
+#endif
 
 struct PrecompTable {
     PointJ points[PRECOMP_TABLE_SIZE];
@@ -331,43 +424,73 @@ __device__ inline void scalar_mul_jacobian(const PointJ& base, const Big256& sca
     res = R;
 }
 
-// Windowed scalar multiplication using 4-bit windows (uses precomputed table)
+// Windowed scalar multiplication using adaptive window size (uses precomputed table)
 __device__ inline void scalar_mul_windowed(const Big256& scalar, PointJ& res) {
     big256_set_zero(res.X); big256_set_zero(res.Y); big256_set_zero(res.Z);
     PointJ R = res;
     
-    // Process scalar in 4-bit windows from MSB to LSB
-    // Big256 is little-endian: w[7] is MSW, w[0] is LSW
+#if WINDOW_BITS == 5
+    // 5-bit windows for newer GPUs (Turing+)
+    // First handle top bit separately (bit 255)
+    if (scalar.w[7] & 0x80000000u) {
+        R = G_precomp_table.points[0]; // 1G
+    }
+    
+    // Process remaining 255 bits in 51 windows of 5 bits each
+    for (int w_idx = 50; w_idx >= 0; --w_idx) {
+        // Double 5 times
+        #pragma unroll
+        for (int i = 0; i < 5; ++i) {
+            jacobian_double(R, R);
+        }
+        
+        // Extract 5-bit window
+        int bit_pos = w_idx * 5;
+        int word_idx = bit_pos / 32;
+        int bit_in_word = bit_pos % 32;
+        
+        uint32_t window;
+        if (bit_in_word <= 27) {
+            window = (scalar.w[word_idx] >> bit_in_word) & 0x1F;
+        } else {
+            uint32_t low_bits = scalar.w[word_idx] >> bit_in_word;
+            uint32_t high_bits = (word_idx < 7) ? (scalar.w[word_idx + 1] << (32 - bit_in_word)) : 0;
+            window = (low_bits | high_bits) & 0x1F;
+        }
+        
+        if (window > 0) {
+            jacobian_add(R, G_precomp_table.points[window - 1], R);
+        }
+    }
+#else
+    // 4-bit windows for older GPUs (Pascal and earlier)
     // 256 bits / 4 = 64 windows
     for (int w_idx = 63; w_idx >= 0; --w_idx) {
         // Double 4 times
+        #pragma unroll
         for (int i = 0; i < 4; ++i) {
             jacobian_double(R, R);
         }
         
         // Extract 4-bit window
-        // w_idx 63 = bits 252-255 (top 4 bits of scalar.w[7])
-        // w_idx 0  = bits 0-3 (bottom 4 bits of scalar.w[0])
-        int bit_pos = w_idx * 4;  // bit position from LSB
-        int word_idx = bit_pos / 32;  // which word (0-7)
-        int bit_in_word = bit_pos % 32;  // bit position within word
+        int bit_pos = w_idx * 4;
+        int word_idx = bit_pos / 32;
+        int bit_in_word = bit_pos % 32;
         
         uint32_t window;
         if (bit_in_word <= 28) {
-            // Window fits in one word, extract 4 bits
             window = (scalar.w[word_idx] >> bit_in_word) & 0xF;
         } else {
-            // Window spans two words
             uint32_t low_bits = scalar.w[word_idx] >> bit_in_word;
             uint32_t high_bits = (word_idx < 7) ? (scalar.w[word_idx + 1] << (32 - bit_in_word)) : 0;
             window = (low_bits | high_bits) & 0xF;
         }
         
-        // Add corresponding precomputed point (skip if window = 0)
         if (window > 0) {
             jacobian_add(R, G_precomp_table.points[window - 1], R);
         }
     }
+#endif
     
     res = R;
 }
