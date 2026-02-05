@@ -6,13 +6,14 @@ A high-performance CUDA-accelerated vanity address generator for Nostr npub addr
 
 Benchmarked performance on real hardware (pattern: "cuda"):
 
-| GPU | Architecture | Compute Capability | Avg Hash Rate | vs rana CPU |
+| GPU | Architecture | Compute Capability | Keys/Second | vs rana CPU |
 |-----|--------------|-------------------|---------------|-------------|
-| **NVIDIA GB10** | Blackwell | 12.1 | **4.06M keys/s** | **2.45x faster** ✅ |
-| GTX 1070 | Pascal | 6.1 | **532K keys/s** | 3.1x slower |
+| **NVIDIA GB10** | Blackwell | 12.1 | **4.06M keys/s** | **3.0x faster** ✅ |
+| **RTX 2060** | Turing | 7.5 | **2.49M keys/s** | **1.8x faster** ✅ |
+| GTX 1070 | Pascal | 6.1 | **532K keys/s** | 2.5x slower |
 
 **CPU Comparison:**
-- **rana** on Intel i9-14900K (24 cores, 32 threads): **~1.66M keys/s**
+- **rana** on Intel i9-14900K (24 cores, 32 threads): **~1.35M keys/s**
 
 ## Features
 
@@ -22,7 +23,7 @@ Benchmarked performance on real hardware (pattern: "cuda"):
 - ✅ **Architecture-specific tuning** - Optimized kernel configuration per GPU generation
 - ✅ **Early pattern rejection** - Fast rejection before full bech32 encoding
 - ✅ **Fast pattern matching** - Validates bech32 character set (rejects b, i, o, 1)
-- ✅ **Real-time progress** - Shows hash rate and keys generated
+- ✅ **Real-time progress** - Shows generation speed and keys generated
 - ✅ **Efficient batch processing** - Quick termination after finding matches
 - ✅ **Verified compatibility** - Keys tested with `nak` CLI tool
 
@@ -134,13 +135,13 @@ echo "<pubkey_hex>" | nak encode npub
 
 Each additional character increases difficulty by ~32x:
 
-| Pattern Length | Estimated Keys | Time (GB10 @ 4.06M keys/s) | Time (GTX 1070 @ 532K keys/s) |
-|----------------|----------------|----------------------------|-------------------------------|
-| 4 chars | ~1M | 0.25s | 1.9s |
-| 5 chars | ~33M | 8s | 62s |
-| 6 chars | ~1B | 4 min | 31 min |
-| 7 chars | ~34B | 2.3 hours | 18 hours |
-| 8 chars | ~1T | 2.9 days | 22 days |
+| Pattern Length | Estimated Keys | GB10 @ 4.06M | RTX 2060 @ 2.49M | GTX 1070 @ 532K |
+|----------------|----------------|--------------|------------------|-----------------|
+| 4 chars | ~1M | 0.25s | 0.4s | 1.9s |
+| 5 chars | ~33M | 8s | 13s | 62s |
+| 6 chars | ~1B | 4 min | 7 min | 31 min |
+| 7 chars | ~34B | 2.3 hours | 3.8 hours | 18 hours |
+| 8 chars | ~1T | 2.9 days | 5.1 days | 22 days |
 
 ## Testing
 
@@ -166,7 +167,7 @@ Run performance benchmarks:
 ./benchmark.sh q
 ```
 
-This will run 5 iterations and show min/max/avg hash rates.
+This will run 5 iterations and show min/max/avg keys/second.
 
 ## Technical Details
 
