@@ -24,13 +24,8 @@ jobs:
     
     - name: Create .deb package
       run: |
-        VERSION=${GITHUB_REF#refs/tags/v}
-        if [ -z "$VERSION" ]; then
-          VERSION="0.0.0"
-        fi
-        
-        # Use the build script
-        ./contrib/build-deb.sh ${VERSION}
+        # The build script will handle version detection automatically
+        ./contrib/build-deb.sh
     
     - name: Upload .deb artifact
       uses: actions/upload-artifact@v4
@@ -43,15 +38,16 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+    
     - name: Install CUDA Toolkit
       uses: Jimver/cuda-toolkit@v0.2.30
       with:
         method: 'network'
     
     - name: Build binary
-      run: |
-        nvcc -O3 -o vanity_npub.exe vanity_npub.cu -lcurand
-      shell: cmd
+      run: nvcc -O3 -o vanity_npub.exe vanity_npub.cu -lcurand
     
     - name: Upload .exe artifact
       uses: actions/upload-artifact@v4
