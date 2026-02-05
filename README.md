@@ -31,7 +31,7 @@ Benchmarked performance on real hardware (pattern: "cuda"):
 - CUDA Toolkit (tested with 12.9)
 - Make
 
-### Build
+### Build on Linux/macOS
 
 ```bash
 # Default build (compute capability 6.1)
@@ -47,7 +47,38 @@ make detect
 make help
 ```
 
+### Build on Windows
+
+**Option 1: Visual Studio (Recommended)**
+
+```cmd
+# Using default compute capability 6.1 (GTX 1070)
+nvcc -O3 -std=c++11 -gencode=arch=compute_61,code="sm_61,compute_61" -o vanity_npub.exe vanity_npub.cu -lcurand
+
+# For RTX 50-series (compute capability 12.1)
+nvcc -O3 -std=c++11 -gencode=arch=compute_121,code="sm_121,compute_121" -o vanity_npub.exe vanity_npub.cu -lcurand
+
+# For RTX 40-series (compute capability 8.9)
+nvcc -O3 -std=c++11 -gencode=arch=compute_89,code="sm_89,compute_89" -o vanity_npub.exe vanity_npub.cu -lcurand
+
+# For RTX 30-series (compute capability 8.6)
+nvcc -O3 -std=c++11 -gencode=arch=compute_86,code="sm_86,compute_86" -o vanity_npub.exe vanity_npub.cu -lcurand
+```
+
+**Option 2: WSL (Windows Subsystem for Linux)**
+
+Install WSL2 with CUDA support and follow the Linux build instructions above.
+
+**Finding your GPU's compute capability:**
+
+```cmd
+# Run in Command Prompt or PowerShell
+nvidia-smi --query-gpu=name,compute_cap --format=csv
+```
+
 ## Usage
+
+### Linux/macOS
 
 ```bash
 # Generate vanity npub
@@ -58,6 +89,19 @@ make help
 
 # Example: Find npub starting with "npub1cuda"
 ./vanity_npub cuda
+```
+
+### Windows
+
+```cmd
+# Generate vanity npub
+vanity_npub.exe <pattern>
+
+# Example: Find npub starting with "npub1test"
+vanity_npub.exe test
+
+# Example: Find npub starting with "npub1cuda"
+vanity_npub.exe cuda
 ```
 
 ### Example Output
