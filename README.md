@@ -6,10 +6,16 @@ A high-performance CUDA-accelerated vanity address generator for Nostr npub addr
 
 Benchmarked performance on real hardware:
 
-| GPU | Architecture | Compute Capability | Performance | vs rana (32 CPU cores @ 1.66M keys/s) |
-|-----|--------------|-------------------|-------------|---------------------------------------|
+| GPU | Architecture | Compute Capability | Performance | vs rana CPU |
+|-----|--------------|-------------------|-------------|-------------|
 | **RTX 50-series (GB10)** | Blackwell | 12.1 | **~2.0M keys/s** | **1.2x faster** ✅ |
 | GTX 1070 | Pascal | 6.1 | ~150K keys/s | 11x slower |
+
+**CPU Comparison:**
+- **rana** on Intel i9-14900K (24 cores, 32 threads): **~1.66M keys/s**
+- This CUDA implementation on RTX 50-series: **~2.0M keys/s** (1.2x faster)
+
+The CUDA implementation beats a high-end 24-core CPU on modern GPUs!
 
 ### Why the Difference?
 
