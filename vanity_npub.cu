@@ -69,7 +69,7 @@ __global__ void init_precomp_table(PointJ *table_out) {
 }
 
 // Optimized scalar multiplication using windowed method with precomputed table
-__device__ void scalarMultG_fast(const unsigned int privkey[8], unsigned int pubX[8], unsigned int pubY[8]) {
+__device__ void scalarMultG_fast(const unsigned int* __restrict__ privkey, unsigned int* __restrict__ pubX, unsigned int* __restrict__ pubY) {
     // Convert privkey to Big256 format
     Big256 scalar;
     convert_to_big256(privkey, scalar);
@@ -119,6 +119,7 @@ __global__ void vanity_search_kernel(
         keys_processed++;
         
         // Generate random 32-byte private key
+        #pragma unroll
         for (int i = 0; i < 8; i++) {
             privkey[i] = curand(&state);
         }
@@ -127,6 +128,7 @@ __global__ void vanity_search_kernel(
         scalarMultG_fast(privkey, pubX, pubY);
         
         // Convert public key X coordinate to bytes (big-endian)
+        #pragma unroll
         for (int i = 0; i < 8; i++) {
             pubkey_bytes[i * 4 + 0] = (pubX[i] >> 24) & 0xFF;
             pubkey_bytes[i * 4 + 1] = (pubX[i] >> 16) & 0xFF;
@@ -136,17 +138,22 @@ __global__ void vanity_search_kernel(
         
         // Partial encoding: only encode enough to check the pattern
         if (bech32_encode_and_check_pattern(pubkey_bytes, pattern, pattern_len)) {
-            // Found a match!
+            // Found a match! Atomically claim this result
             int old = atomicCAS(found_flag, 0, 1);
             if (old == 0) {
-                // Convert privkey to bytes (big-endian)
+                // We won - save this keypair
+                // Convert privkey to bytes (big-endian) and write directly to global memory
+                #pragma unroll
                 for (int i = 0; i < 8; i++) {
-                    found_privkey[i * 4 + 0] = (privkey[i] >> 24) & 0xFF;
-                    found_privkey[i * 4 + 1] = (privkey[i] >> 16) & 0xFF;
-                    found_privkey[i * 4 + 2] = (privkey[i] >> 8) & 0xFF;
-                    found_privkey[i * 4 + 3] = privkey[i] & 0xFF;
+                    uint32_t pk = privkey[i];  // Read once to ensure consistency
+                    found_privkey[i * 4 + 0] = (pk >> 24) & 0xFF;
+                    found_privkey[i * 4 + 1] = (pk >> 16) & 0xFF;
+                    found_privkey[i * 4 + 2] = (pk >> 8) & 0xFF;
+                    found_privkey[i * 4 + 3] = pk & 0xFF;
                 }
-                // Save pubkey (already in pubkey_bytes)
+                
+                // Save pubkey directly
+                #pragma unroll
                 for (int i = 0; i < 32; i++) {
                     found_pubkey[i] = pubkey_bytes[i];
                 }
